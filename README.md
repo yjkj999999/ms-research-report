@@ -2,19 +2,21 @@
 
 > Publication-grade equity research report generator for sell-side/buy-side analysts.
 
-**Author**: WANG DONG JIE | **License**: MIT | **Version**: 1.0.0
+**Author**: WANG DONG JIE | **License**: MIT | **Version**: 1.1.0
 
 ## Features
 
 - Complete 20-section report structure (Cover to Disclosure)
 - Publication-grade matplotlib charts (DPI 300, MS 8-color palette)
-- Chart types: bar, line, pie, waterfall
+- 10 chart types: bar, line, pie, waterfall, stacked_bar, donut, dual_axis, grouped_bar, bubble, event_line
+- 2x2 Strategic Matrix framework section
 - Exhibit auto-numbering system
 - WACC stacked bar chart, Valuation Bridge waterfall
 - Sensitivity analysis matrices
 - Comparable company analysis
 - Thesis in N Charts with KPI cards
 - 8 color themes, zh/en/bilingual support
+- All charts: DPI 300, MS 8-color palette, publication-grade
 
 ## Quick Start
 

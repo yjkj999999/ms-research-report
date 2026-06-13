@@ -533,6 +533,6 @@ ms-research-report/
 
 **Author**: WANG DONG JIE ([@yjkj999999](https://github.com/yjkj999999) | [Clawhub](https://clawhub.ai/user/yjkj999999))
 
-**Version**: 1.0.0 | **License**: MIT | **Category**: Equity Research
+**Version**: 1.1.0 | **License**: MIT | **Category**: Equity Research
 
 > 适用于 CGMA/ACCA/CFA 持证人及卖方/买方分析师、基金经理。生成符合摩根士丹利出版标准的股票研究报告。

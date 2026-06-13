@@ -476,7 +476,8 @@ def _add_chart_image(doc, chart_data: Dict[str, Any],
     """根据 chart_data 生成一张 PNG 图并嵌入 doc。返回临时文件路径（调用者不负责删除）。
 
     支持的 chart_data 字段：
-        - type: "bar" | "line" | "pie" | "waterfall"（默认 "bar"）
+        - type: "bar" | "line" | "pie" | "waterfall" | "stacked_bar" | "donut"
+               | "dual_axis" | "grouped_bar" | "bubble" | "event_line"（默认 "bar"）
         - title: 标题（可选）
         - 其余字段按类型而定，见函数内注释。
 
@@ -694,6 +695,266 @@ def _add_chart_image(doc, chart_data: Dict[str, Any],
                         ha="center", va="bottom", fontsize=8,
                         color=lbl_color, fontweight='bold', zorder=5)
 
+        elif ctype == "stacked_bar":
+            # 堆叠柱状图（Stacked Bar Chart）：
+            # chart_data = {"type": "stacked_bar", "title": "...",
+            #   "categories": [...], "series": [{"name": "...", "values": [...], "color": "..."}],
+            #   "source": "..."}
+            categories = list(chart_data.get("categories") or [])
+            series_list = chart_data.get("series") or []
+            if not categories or not series_list:
+                raise ValueError("stacked_bar chart 缺少数据")
+            n = len(categories)
+            xs = list(range(n))
+            bottoms = [0.0] * n
+            for si, s_data in enumerate(series_list):
+                s_name = str(s_data.get("name") or f"Series {si+1}")
+                s_values = [_to_float(v) for v in (s_data.get("values") or [])]
+                s_values = (s_values + [0.0] * n)[:n]
+                s_color = str(s_data.get("color") or MS_PALETTE[si % len(MS_PALETTE)])
+                ax.bar(xs, s_values, bottom=bottoms, width=0.55,
+                       color=s_color, label=s_name,
+                       edgecolor='white', linewidth=0, zorder=3)
+                # Value labels on each segment
+                for i, v in enumerate(s_values):
+                    if v is not None and v != 0:
+                        ax.text(xs[i], bottoms[i] + v / 2, f'{v:,.0f}',
+                                ha='center', va='center', fontsize=7,
+                                color='white', fontweight='bold', zorder=5)
+                bottoms = [bottoms[i] + (s_values[i] or 0.0) for i in range(n)]
+            ax.set_xticks(xs)
+            ax.set_xticklabels(categories)
+            ax.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+            ax.legend(frameon=False, fontsize=8, labelcolor=MS_CHART_TICK_COLOR,
+                      loc='upper right')
+
+        elif ctype == "donut":
+            # 环形图（Donut Chart with Center Label）：
+            # chart_data = {"type": "donut", "title": "...",
+            #   "segments": [{"name": "...", "value": N, "color": "..."}],
+            #   "center_text": "$1.77T", "center_subtext": "Total EV",
+            #   "source": "..."}
+            segments = chart_data.get("segments") or []
+            if not segments:
+                raise ValueError("donut chart 缺少数据")
+            labels = [str(s.get("name") or "") for s in segments]
+            values = [_to_float(s.get("value")) for s in segments]
+            values = [v if v is not None else 0.0 for v in values]
+            colors = [str(s.get("color") or MS_PALETTE[i % len(MS_PALETTE)])
+                      for i in range(len(segments))]
+            total = sum(values)
+            wedges, texts, autotexts = ax.pie(
+                values, labels=None, colors=colors,
+                autopct=lambda pct: f'{pct:.1f}%' if pct > 3 else '',
+                startangle=90, pctdistance=0.78,
+                wedgeprops=dict(width=0.4, edgecolor='white', linewidth=1.5),
+                textprops={'fontsize': 8, 'color': '#1A1A1A'})
+            for at in autotexts:
+                at.set_fontsize(8)
+                at.set_fontweight('bold')
+                at.set_color('#333333')
+            # Center text
+            center_text = str(chart_data.get("center_text") or "")
+            center_subtext = str(chart_data.get("center_subtext") or "")
+            if center_text:
+                ax.text(0, 0.06, center_text, ha='center', va='center',
+                        fontsize=16, fontweight='bold', color=MS_CHART_TITLE_COLOR)
+            if center_subtext:
+                ax.text(0, -0.12, center_subtext, ha='center', va='center',
+                        fontsize=9, color='#666666')
+            ax.legend(wedges, labels, title="Segments",
+                      loc="center left", bbox_to_anchor=(1, 0, 0.5, 1),
+                      fontsize=8, frameon=False, title_fontsize=8)
+            ax.set_aspect("equal")
+
+        elif ctype == "dual_axis":
+            # 双轴组合图（Bar + Line on twin axis）：
+            # chart_data = {"type": "dual_axis", "title": "...",
+            #   "categories": [...],
+            #   "bar_series": {"name": "...", "values": [...], "color": "..."},
+            #   "line_series": {"name": "...", "values": [...], "color": "...", "marker": true},
+            #   "source": "..."}
+            categories = list(chart_data.get("categories") or [])
+            bar_data = chart_data.get("bar_series") or {}
+            line_data = chart_data.get("line_series") or {}
+            if not categories:
+                raise ValueError("dual_axis chart 缺少数据")
+            n = len(categories)
+            xs = list(range(n))
+            # Bar series on primary axis
+            bar_values = [_to_float(v) for v in (bar_data.get("values") or [])]
+            bar_values = (bar_values + [0.0] * n)[:n]
+            bar_color = str(bar_data.get("color") or MS_PALETTE[0])
+            bar_name = str(bar_data.get("name") or "Bar")
+            ax.bar(xs, bar_values, width=0.5, color=bar_color,
+                   label=bar_name, edgecolor='white', linewidth=0, zorder=3)
+            # Value labels on bars
+            for i, v in enumerate(bar_values):
+                if v is not None and v != 0:
+                    ax.text(xs[i], v, f'{v:,.0f}', ha='center', va='bottom',
+                            fontsize=7, color='#4A4A4A', fontweight='bold', zorder=5)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(categories)
+            ax.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+            # Line series on secondary axis
+            ax2 = ax.twinx()
+            line_values = [_to_float(v) for v in (line_data.get("values") or [])]
+            line_values = (line_values + [None] * n)[:n]
+            line_color = str(line_data.get("color") or MS_PALETTE[3])
+            line_name = str(line_data.get("name") or "Line")
+            use_marker = line_data.get("marker", True)
+            line_clean = [v if v is not None else float("nan") for v in line_values]
+            ax2.plot(xs, line_clean, marker="o" if use_marker else None,
+                     markersize=5 if use_marker else 0,
+                     color=line_color, linewidth=2.0, label=line_name, zorder=4)
+            for i, v in enumerate(line_values):
+                if v is not None:
+                    ax2.text(xs[i], v, f'{v:.1f}%', ha='center', va='bottom',
+                             fontsize=7, color=line_color, fontweight='bold', zorder=5)
+            ax2.set_ylabel("%", fontsize=9, color=line_color)
+            ax2.tick_params(axis='y', labelcolor=line_color, labelsize=8)
+            ax2.spines['right'].set_visible(True)
+            ax2.spines['right'].set_color(line_color)
+            ax2.spines['right'].set_linewidth(0.6)
+            # Combined legend
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2,
+                      frameon=False, fontsize=8, labelcolor=MS_CHART_TICK_COLOR,
+                      loc='upper right')
+
+        elif ctype == "grouped_bar":
+            # 分组柱状图（Grouped/Clustered Bar Chart）：
+            # chart_data = {"type": "grouped_bar", "title": "...",
+            #   "categories": [...],
+            #   "groups": [{"name": "Bear", "values": [...], "color": "#843C0C"},
+            #              {"name": "Base", "values": [...], "color": "#375623"},
+            #              {"name": "Bull", "values": [...], "color": "#1F3864"}],
+            #   "source": "..."}
+            categories = list(chart_data.get("categories") or [])
+            groups = chart_data.get("groups") or []
+            if not categories or not groups:
+                raise ValueError("grouped_bar chart 缺少数据")
+            n = len(categories)
+            n_groups = len(groups)
+            xs = list(range(n))
+            total_width = 0.7
+            single_w = total_width / n_groups
+            for gi, g_data in enumerate(groups):
+                g_name = str(g_data.get("name") or f"Group {gi+1}")
+                g_values = [_to_float(v) for v in (g_data.get("values") or [])]
+                g_values = (g_values + [0.0] * n)[:n]
+                g_color = str(g_data.get("color") or MS_PALETTE[gi % len(MS_PALETTE)])
+                offset = (gi - n_groups / 2 + 0.5) * single_w
+                ax.bar([x + offset for x in xs], g_values, width=single_w * 0.9,
+                       color=g_color, label=g_name,
+                       edgecolor='white', linewidth=0, zorder=3)
+                # Value labels
+                for i, v in enumerate(g_values):
+                    if v is not None and v != 0:
+                        ax.text(xs[i] + offset, v, f'{v:,.0f}',
+                                ha='center', va='bottom', fontsize=7,
+                                color='#4A4A4A', fontweight='bold', zorder=5)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(categories)
+            ax.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+            ax.legend(frameon=False, fontsize=8, labelcolor=MS_CHART_TICK_COLOR,
+                      loc='upper right')
+
+        elif ctype == "bubble":
+            # 气泡图（Bubble Chart）：
+            # chart_data = {"type": "bubble", "title": "...",
+            #   "points": [{"x": N, "y": N, "size": N, "label": "...", "color": "..."}],
+            #   "x_label": "...", "y_label": "...", "source": "..."}
+            points = chart_data.get("points") or []
+            if not points:
+                raise ValueError("bubble chart 缺少数据")
+            x_label = str(chart_data.get("x_label") or "")
+            y_label = str(chart_data.get("y_label") or "")
+            for pt in points:
+                px = _to_float(pt.get("x"))
+                py = _to_float(pt.get("y"))
+                ps = _to_float(pt.get("size")) or 100
+                pl = str(pt.get("label") or "")
+                pc = str(pt.get("color") or MS_PALETTE[0])
+                if px is not None and py is not None:
+                    ax.scatter(px, py, s=ps, c=pc, alpha=0.7,
+                               edgecolors='white', linewidth=0.5, zorder=3)
+                    if pl:
+                        ax.annotate(pl, (px, py), textcoords="offset points",
+                                    xytext=(0, int(ps ** 0.5 * 0.3) + 6),
+                                    ha='center', va='bottom', fontsize=7,
+                                    color='#333333', fontweight='bold', zorder=5)
+            if x_label:
+                ax.set_xlabel(x_label, fontsize=9, color=MS_CHART_TICK_COLOR)
+            if y_label:
+                ax.set_ylabel(y_label, fontsize=9, color=MS_CHART_TICK_COLOR)
+
+        elif ctype == "event_line":
+            # 事件标注折线图（Line Chart with Event Annotations）：
+            # chart_data = {"type": "event_line", "title": "...",
+            #   "dates": [...], "values": [...],
+            #   "events": [{"date": "...", "label": "...", "color": "..."}],
+            #   "forecast_start": N, "source": "..."}
+            dates = list(chart_data.get("dates") or [])
+            values = [_to_float(v) for v in (chart_data.get("values") or [])]
+            events = chart_data.get("events") or []
+            forecast_start = chart_data.get("forecast_start")
+            if not dates or not values:
+                raise ValueError("event_line chart 缺少数据")
+            n = len(dates)
+            xs = list(range(n))
+            values_clean = [v if v is not None else float("nan") for v in values]
+            # Forecast region background
+            if forecast_start is not None and 0 < forecast_start < n:
+                ax.axvspan(forecast_start - 0.5, n - 0.5,
+                           facecolor='#F0F0F0', edgecolor='none', zorder=0)
+                ax.text(forecast_start + (n - forecast_start) / 2 - 0.5,
+                        ax.get_ylim()[1] if ax.get_ylim()[1] > 0 else max(values_clean),
+                        "Forecast", ha='center', va='top', fontsize=8,
+                        color='#999999', fontstyle='italic', zorder=1)
+            # Historical line (solid)
+            hist_end = forecast_start if forecast_start is not None else n
+            hist_values = values_clean[:hist_end]
+            hist_xs = xs[:hist_end]
+            if hist_values:
+                ax.plot(hist_xs, hist_values, color=MS_PALETTE[0],
+                        linewidth=2.0, marker='o', markersize=4, zorder=3)
+            # Forecast line (dashed)
+            if forecast_start is not None and forecast_start < n:
+                fc_xs = xs[forecast_start - 1:]
+                fc_values = values_clean[forecast_start - 1:]
+                ax.plot(fc_xs, fc_values, color=MS_PALETTE[0],
+                        linewidth=2.0, linestyle='--', marker='o',
+                        markersize=4, zorder=3)
+            # Data point labels
+            for i, v in enumerate(values):
+                if v is not None:
+                    ax.text(xs[i], v, f'{v:,.1f}', ha='center', va='bottom',
+                            fontsize=7, color=MS_PALETTE[0], fontweight='bold',
+                            zorder=5)
+            # Event annotations
+            for evt in events:
+                evt_date = str(evt.get("date") or "")
+                evt_label = str(evt.get("label") or "")
+                evt_color = str(evt.get("color") or MS_PALETTE[5])
+                if evt_date in dates:
+                    evt_idx = dates.index(evt_date)
+                    ax.axvline(x=evt_idx, color=evt_color, linewidth=1.0,
+                               linestyle='--', alpha=0.7, zorder=2)
+                    ax.text(evt_idx, ax.get_ylim()[1] if ax.get_ylim()[1] > 0
+                            else max(values_clean),
+                            evt_label, ha='center', va='top', fontsize=7,
+                            color=evt_color, fontweight='bold', rotation=0,
+                            zorder=5)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(dates, rotation=30, ha="right", fontsize=7)
+            ax.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+
         else:
             # 不支持的类型 -> 占位文字
             plt.close(fig)
@@ -706,7 +967,10 @@ def _add_chart_image(doc, chart_data: Dict[str, Any],
         _apply_ax_publication_style(ax, title=title)
         # Source watermark
         _add_source_watermark(fig)
-        fig.tight_layout(pad=1.5)
+        import warnings as _warnings
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", UserWarning)
+            fig.tight_layout(pad=1.5)
 
         # 写入临时文件
         fd, path = tempfile.mkstemp(prefix="ms_chart_", suffix=".png")
@@ -3135,6 +3399,119 @@ def _comps_section(doc, data: Dict[str, Any],
 
 
 # =============================================================================
+# 19b. 2x2 战略矩阵分析框架
+# =============================================================================
+
+def _2x2_matrix_section(doc, data: Dict[str, Any],
+                         theme_colors: Dict[str, RGBColor]) -> None:
+    """2x2 战略矩阵分析框架（Four-Quadrant Strategic Matrix）。
+
+    data["matrix_2x2"] = {
+        "title": "战略定位矩阵",
+        "quadrants": [
+            {
+                "title": "高增长 / 高份额",
+                "color": "#1F3864",
+                "items": ["AI芯片领导者", "数据中心龙头", "云计算平台"]
+            },
+            {
+                "title": "高增长 / 低份额",
+                "color": "#2E75B6",
+                "items": ["新兴光模块", "液冷散热", "边缘计算"]
+            },
+            {
+                "title": "低增长 / 高份额",
+                "color": "#C8A951",
+                "items": ["传统IDC", "成熟网络设备", "通用存储"]
+            },
+            {
+                "title": "低增长 / 低份额",
+                "color": "#B91C1C",
+                "items": ["低端制造", "过时技术", "衰退市场"]
+            }
+        ]
+    }
+
+    渲染为 2x2 Word 表格，每个象限有彩色背景和内容。
+    """
+    matrix_data = data.get("matrix_2x2") or data.get("strategic_matrix")
+    if not matrix_data or not isinstance(matrix_data, dict):
+        return
+
+    quadrants = matrix_data.get("quadrants") or []
+    if len(quadrants) < 4:
+        return
+
+    title = str(matrix_data.get("title") or "战略定位矩阵 / Strategic Positioning Matrix")
+
+    # Section heading
+    head = doc.add_paragraph(style='Heading 1')
+    _add_run(head, title, size=20, bold=True,
+             color=theme_colors["brand_blue"])
+    _gold_short_underline(doc, theme_colors)
+    doc.add_paragraph()
+
+    # Create 2x2 table
+    table = doc.add_table(rows=2, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    # Set table width
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement('w:tblPr')
+    tblW = OxmlElement('w:tblW')
+    tblW.set(qn('w:w'), '9000')
+    tblW.set(qn('w:type'), 'dxa')
+    tblPr.append(tblW)
+
+    # Default quadrant colors (MS palette)
+    default_colors = ['#1F3864', '#2E75B6', '#C8A951', '#B91C1C']
+
+    for qi in range(4):
+        row_idx = qi // 2
+        col_idx = qi % 2
+        cell = table.cell(row_idx, col_idx)
+        q_data = quadrants[qi]
+        q_title = str(q_data.get("title") or f"Quadrant {qi+1}")
+        q_color = str(q_data.get("color") or default_colors[qi])
+        q_items = q_data.get("items") or q_data.get("points") or []
+
+        # Set cell background
+        _set_cell_shd(cell, q_color.upper())
+        _set_cell_borders(cell, color=RGBColor(0xFF, 0xFF, 0xFF), size="8")
+
+        # Set cell width
+        cell.width = Inches(3.0)
+
+        # Clear default paragraph
+        cell.paragraphs[0].clear()
+
+        # Quadrant title (bold, white)
+        title_p = cell.paragraphs[0]
+        title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_p.paragraph_format.space_before = Pt(8)
+        title_p.paragraph_format.space_after = Pt(4)
+        _add_run(title_p, q_title, size=11, bold=True, color=WHITE)
+
+        # Bullet items
+        for item_text in q_items:
+            item_p = cell.add_paragraph()
+            item_p.paragraph_format.space_before = Pt(1)
+            item_p.paragraph_format.space_after = Pt(1)
+            item_p.paragraph_format.line_spacing = 1.15
+            _add_run(item_p, f"  - {item_text}", size=9, color=WHITE)
+
+    doc.add_paragraph()
+
+    # Source footnote
+    source = matrix_data.get("source") or "Source: Morgan Stanley Research"
+    src_p = doc.add_paragraph()
+    _add_run(src_p, source, size=9, italic=True,
+             color=theme_colors["aux_gray"])
+
+    doc.add_page_break()
+
+
+# =============================================================================
 # 20. 估值桥 / Valuation Bridge
 # =============================================================================
 
@@ -3311,7 +3688,8 @@ def make_report(data: Dict[str, Any], output_path: str,
           ``appendix`` 等按需提供。新增可选字段：
           ``thesis_charts`` / ``value_chain`` / ``shovel_stocks_list``
           / ``whats_changed`` / ``industry_view`` / ``analyst_title``
-          / ``analyst_email`` / ``industry`` / ``entity``。
+          / ``analyst_email`` / ``industry`` / ``entity``
+          / ``matrix_2x2``（2x2 战略矩阵）。
     output_path: 输出 .docx 路径。上层应确保父目录存在，此处不负责创建。
     theme: 主题名称，目前支持 "classic"（深蓝+金）。
     language: 预留字段，"zh"/"en"/"bilingual"，目前章节标题双语显示。
@@ -3453,6 +3831,9 @@ def make_report(data: Dict[str, Any], output_path: str,
     _value_chain_section(doc, data, theme_colors)
     # 7. 铲子股列表（如果有 shovel_stocks_list 数据）
     _shovel_stocks_list(doc, data, theme_colors)
+
+    # 7b. 2x2 战略矩阵（如果有 matrix_2x2 数据）
+    _2x2_matrix_section(doc, data, theme_colors)
 
     # 8. DCF 章节（按顺序：情景分析 → WACC → 敏感性 → 可比公司 → 估值桥）
     _scenario_comparison_section(doc, data, theme_colors, language)
